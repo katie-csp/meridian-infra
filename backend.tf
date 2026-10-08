@@ -1,0 +1,28 @@
+# Remote state stored in a dedicated S3 bucket inside LocalStack, kept separate
+# from the application bucket so app data and infrastructure state never mix.
+#
+# The bucket must exist before `tofu init`: run scripts/bootstrap-state.sh first.
+# Backend blocks cannot use variables, so values are hard-coded here.
+terraform {
+  backend "s3" {
+    bucket = "meridian-tofu-state"
+    key    = "meridian-infra/terraform.tfstate"
+    region = "us-east-1"
+
+    # Point the backend at LocalStack instead of real AWS
+    endpoints = {
+      s3 = "http://localhost:4566"
+    }
+    access_key                  = "test"
+    secret_key                  = "test"
+    use_path_style              = true
+    skip_credentials_validation = true
+    skip_requesting_account_id  = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+
+    # State locking: OpenTofu (>= 1.10) writes a <key>.tflock object using an
+    # S3 conditional write. LocalStack supports this, so no DynamoDB table is needed.
+    use_lockfile = true
+  }
+}

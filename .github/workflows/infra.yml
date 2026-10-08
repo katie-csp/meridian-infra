@@ -1,0 +1,87 @@
+# GitOps pipeline for the Meridian infrastructure.
+#   Pull request to main -> fmt, validate, plan   (preview the change for review)
+#   Push/merge to main   -> fmt, validate, apply  (make the infrastructure match main)
+#
+# GitHub-hosted runners cannot reach the LocalStack on a developer's machine,
+# so each run starts its own fresh LocalStack as a service container.
+name: Infrastructure
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# Never run two pipelines for the same branch at once (protects the state)
+concurrency:
+  group: infra-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  tofu:
+    name: ${{ github.event_name == 'push' && 'Apply' || 'Plan' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      localstack:
+        # Pinned so every run uses the same LocalStack; bump deliberately via a PR
+        image: localstack/localstack:2026.9.1
+        ports:
+          - 4566:4566
+        env:
+          SERVICES: s3,ec2,sts
+          EC2_VM_MANAGER: mock # no Docker-in-Docker on runners; mock EC2 instances
+          # Required: current LocalStack images refuse to start without a token.
+          # Add it under Settings > Secrets and variables > Actions.
+          LOCALSTACK_AUTH_TOKEN: ${{ secrets.LOCALSTACK_AUTH_TOKEN }}
+
+    env:
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+      AWS_DEFAULT_REGION: us-east-1
+      TF_IN_AUTOMATION: "true"
+      # Mock-mode EC2 only knows LocalStack's built-in AMIs, so override ami_id here
+      TF_VAR_ami_id: ami-760aaa0f
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up OpenTofu
+        uses: opentofu/setup-opentofu@v1
+        with:
+          tofu_version: 1.13.0
+
+      - name: Format check
+        run: tofu fmt -check -recursive
+
+      - name: Create state bucket in LocalStack
+        run: bash scripts/bootstrap-state.sh
+
+      - name: Init
+        run: tofu init -input=false
+
+      - name: Validate
+        run: tofu validate
+
+      - name: Plan
+        if: github.event_name == 'pull_request'
+        run: |
+          tofu plan -input=false -out=tfplan
+          echo '### OpenTofu plan' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tofu show -no-color tfplan >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply
+        if: github.event_name == 'push'
+        run: |
+          tofu apply -input=false -auto-approve
+          echo '### OpenTofu outputs' >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tofu output -no-color >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"

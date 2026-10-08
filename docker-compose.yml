@@ -1,0 +1,13 @@
+# Runs LocalStack locally: `docker compose up -d`
+services:
+  localstack:
+    image: localstack/localstack:latest
+    container_name: localstack
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,ec2,sts
+      - DEBUG=0
+      - LOCALSTACK_AUTH_TOKEN=${LOCALSTACK_AUTH_TOKEN:?set LOCALSTACK_AUTH_TOKEN first}
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"

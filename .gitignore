@@ -1,0 +1,14 @@
+# OpenTofu working files
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+crash.log
+.terraform.tfstate.lock.info
+
+# Override files (usually local-only)
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
